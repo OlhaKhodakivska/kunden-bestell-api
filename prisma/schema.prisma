@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  EMPLOYEE
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  SHIPPED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(EMPLOYEE)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  firstName String
+  lastName  String
+  phone     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+
+  @@index([lastName, firstName])
+}
+
+model Product {
+  id          String      @id @default(uuid())
+  sku         String      @unique
+  name        String
+  description String?
+  priceCents  Int
+  stock       Int         @default(0)
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  items       OrderItem[]
+
+  @@index([name])
+}
+
+model Order {
+  id         String      @id @default(uuid())
+  customerId String
+  status     OrderStatus @default(PENDING)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  customer   Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items      OrderItem[]
+
+  @@index([customerId])
+  @@index([status])
+}
+
+model OrderItem {
+  id             String  @id @default(uuid())
+  orderId        String
+  productId      String
+  quantity       Int
+  unitPriceCents Int
+  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([orderId, productId])
+  @@index([productId])
+}

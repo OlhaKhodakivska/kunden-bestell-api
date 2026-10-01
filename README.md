@@ -82,6 +82,86 @@ Folgende Funktionen sind bereits vorhanden:
 GET /api/v1/health
 ```
 
+## Lokale Datenbank
+
+Die API verwendet PostgreSQL. Für die lokale Entwicklung wird die Datenbank mit Docker Compose gestartet.
+
+PostgreSQL starten:
+
+```bash
+docker compose up -d
+```
+
+Status überprüfen:
+
+```bash
+docker compose ps
+```
+
+Die lokale Datenbank ist über Port `5433` erreichbar.
+
+PostgreSQL stoppen:
+
+```bash
+docker compose down
+```
+
+Der Docker-Volume bleibt dabei erhalten.
+
+## Umgebungsvariablen
+
+Die lokale Konfiguration wird in einer `.env`-Datei gespeichert:
+
+```env
+DATABASE_URL="postgresql://postgres:postgres@localhost:5433/kunden_bestell_api?schema=public"
+```
+
+Die Datei `.env` wird nicht in Git gespeichert. Als Vorlage dient `.env.example`.
+
+## Prisma
+
+Prisma Client generieren:
+
+```bash
+npm run db:generate
+```
+
+Lokale Migrationen erstellen und anwenden:
+
+```bash
+npm run db:migrate
+```
+
+Status der Migrationen überprüfen:
+
+```bash
+npm run db:status
+```
+
+Vorhandene Migrationen in einer Produktionsumgebung anwenden:
+
+```bash
+npm run db:deploy
+```
+
+Prisma Studio öffnen:
+
+```bash
+npm run db:studio
+```
+
+## Datenbankmodelle
+
+Die Datenbank enthält folgende Modelle:
+
+- `User`
+- `Customer`
+- `Product`
+- `Order`
+- `OrderItem`
+
+Ein Kunde kann mehrere Bestellungen besitzen. Eine Bestellung enthält eine oder mehrere Bestellpositionen. Jede Bestellposition verweist auf ein Produkt.
+
 ## Team
 
 Einzelprojekt von: **Olha Khodakivska**
