@@ -178,8 +178,8 @@ Authorization: Bearer <accessToken>
 
 Rollen:
 
-- `EMPLOYEE`: Kunden anlegen und lesen sowie eigene Benutzerdaten abrufen.
-- `ADMIN`: dieselben Berechtigungen und zusätzlich die Benutzerliste abrufen.
+- `EMPLOYEE`: Kunden suchen, anlegen, lesen und aktualisieren sowie eigene Benutzerdaten abrufen.
+- `ADMIN`: dieselben Berechtigungen und zusätzlich Kunden ohne Bestellungen löschen sowie die Benutzerliste abrufen.
 
 Die aktuelle Benutzerrolle wird bei geschützten Anfragen aus der Datenbank gelesen.
 
@@ -226,6 +226,9 @@ Diese Zugangsdaten sind ausschließlich für die lokale Entwicklung vorgesehen.
 | GET     | `/api/v1/auth/users`    | ADMIN      | Benutzerliste ohne Passwort-Hashes abrufen |
 | POST    | `/api/v1/customers`     | angemeldet | Kunden anlegen                             |
 | GET     | `/api/v1/customers/:id` | angemeldet | Kunden nach ID abrufen                     |
+| GET     | `/api/v1/customers`     | angemeldet | Kunden suchen und paginieren               |
+| PATCH   | `/api/v1/customers/:id` | angemeldet | Kundendaten teilweise ändern               |
+| DELETE  | `/api/v1/customers/:id` | ADMIN      | Kunden ohne Bestellungen löschen           |
 
 ### Login
 
@@ -349,6 +352,87 @@ Antwort: `200 OK`
 ```
 
 Beide Routen liefern `401` ohne gültigen Token. Die Benutzerliste liefert zusätzlich `403`, wenn die Rolle nicht `ADMIN` ist.
+
+### Kunden suchen und paginieren
+
+```http
+GET /api/v1/customers?search=anna&page=1&limit=5
+Authorization: Bearer <accessToken>
+```
+
+Die Suche berücksichtigt Vorname, Nachname und E-Mail unabhängig von Groß- und Kleinschreibung.
+
+Parameter:
+
+- `search`: optionaler Suchtext, 1–100 Zeichen.
+- `page`: Seitennummer, standardmäßig 1, maximal 100000.
+- `limit`: Einträge pro Seite, standardmäßig 10, maximal 100.
+
+Antwort: `200 OK`
+
+```json
+{
+  "data": [],
+  "pagination": {
+    "page": 1,
+    "limit": 5,
+    "total": 0,
+    "totalPages": 0
+  }
+}
+```
+
+`data` enthält die gefundenen Kunden. Ungültige Parameter liefern `400`, ein fehlender oder ungültiger Token liefert `401`.
+
+### Kunden aktualisieren
+
+```http
+PATCH /api/v1/customers/<UUID>
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{
+  "phone": "+49 987 654321"
+}
+```
+
+Nur übergebene Felder werden geändert. Mit `"phone": null` wird die Telefonnummer entfernt. Ein leeres Objekt wird abgelehnt.
+
+Antwort: `200 OK` mit dem aktualisierten Kunden in `data`.
+
+Fehler: `400` bei ungültigen Eingaben oder UUID, `401` ohne gültigen Token, `404` bei fehlendem Kunden und `409` bei bereits vergebener E-Mail-Adresse.
+
+### Kunden löschen
+
+```http
+DELETE /api/v1/customers/<UUID>
+Authorization: Bearer <accessToken>
+```
+
+Nur `ADMIN` darf Kunden löschen. Kunden mit Bestellungen bleiben erhalten.
+
+Antwort: `204 No Content` ohne Antwortkörper.
+
+Fehler:
+
+- `400`: ungültige UUID.
+- `401`: fehlender oder ungültiger Token.
+- `403`: unzureichende Berechtigung.
+- `404`: Kunde nicht gefunden.
+- `409`: Kunde besitzt Bestellungen.
+
+Beispiel für einen Löschkonflikt:
+
+```json
+{
+  "error": {
+    "code": "CUSTOMER_HAS_ORDERS",
+    "message": "Kunden mit Bestellungen können nicht gelöscht werden."
+  }
+}
+```
 
 ## Fehlerformat
 
