@@ -63,6 +63,8 @@ Ein Kunde kann mehrere Bestellungen aufgeben. Eine Bestellung enthält eine oder
 
 ## Aktueller Entwicklungsstand
 
+- Produkte anlegen und nach ID abrufen;
+
 ## Dokumentation
 
 - [Projektplan mit ER-Diagramm und Endpunkten](docs/PROJEKTPLAN.md)
@@ -229,6 +231,8 @@ Diese Zugangsdaten sind ausschließlich für die lokale Entwicklung vorgesehen.
 | GET     | `/api/v1/customers`     | angemeldet | Kunden suchen und paginieren               |
 | PATCH   | `/api/v1/customers/:id` | angemeldet | Kundendaten teilweise ändern               |
 | DELETE  | `/api/v1/customers/:id` | ADMIN      | Kunden ohne Bestellungen löschen           |
+| POST    | `/api/v1/products`      | angemeldet | Produkt anlegen                            |
+| GET     | `/api/v1/products/:id`  | angemeldet | Produkt nach ID abrufen                    |
 
 ### Login
 
@@ -433,6 +437,77 @@ Beispiel für einen Löschkonflikt:
   }
 }
 ```
+
+### Produkt anlegen
+
+```http
+POST /api/v1/products
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{
+  "sku": "tasse-001",
+  "name": "Keramiktasse",
+  "description": "Weiße Keramiktasse, 300 ml",
+  "priceCents": 1999,
+  "stock": 20
+}
+```
+
+Antwort: `201 Created`. Der Header `Location` enthält die Adresse des neuen Produkts.
+
+```json
+{
+  "data": {
+    "id": "005b0c6e-1474-463d-98da-d686d265d237",
+    "sku": "TASSE-001",
+    "name": "Keramiktasse",
+    "description": "Weiße Keramiktasse, 300 ml",
+    "priceCents": 1999,
+    "stock": 20,
+    "active": true,
+    "createdAt": "2026-10-07T07:31:48.253Z",
+    "updatedAt": "2026-10-07T07:31:48.253Z"
+  }
+}
+```
+
+Validierungsregeln:
+
+- SKU: 1–50 Zeichen, Buchstaben und Zahlen mit optionalen trennenden Bindestrichen; wird in Großbuchstaben gespeichert und muss eindeutig sein.
+- Name: 1–150 Zeichen.
+- Beschreibung: optional, 1–2000 Zeichen.
+- Preis: positive ganze Zahl in Cent; `1999` entspricht 19,99 Euro.
+- Lagerbestand: nicht negative ganze Zahl; Standardwert ist `0`.
+- Aktivstatus: Boolean; Standardwert ist `true`.
+- Preis und Lagerbestand dürfen maximal `2147483647` betragen.
+- Unbekannte Felder werden abgelehnt.
+
+Fehler: `400` bei ungültigen Eingaben, `401` ohne gültigen Token und `409` bei bereits vorhandener SKU.
+
+Beispiel für einen SKU-Konflikt:
+
+```json
+{
+  "error": {
+    "code": "PRODUCT_SKU_EXISTS",
+    "message": "Ein Produkt mit dieser SKU existiert bereits."
+  }
+}
+```
+
+### Produkt abrufen
+
+```http
+GET /api/v1/products/<UUID>
+Authorization: Bearer <accessToken>
+```
+
+Antwort: `200 OK` mit derselben Produktstruktur wie beim Anlegen.
+
+Fehler: `400` bei ungültiger UUID, `401` ohne gültigen Token und `404`, wenn das Produkt nicht existiert.
 
 ## Fehlerformat
 
