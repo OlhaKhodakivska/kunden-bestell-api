@@ -63,7 +63,7 @@ Ein Kunde kann mehrere Bestellungen aufgeben. Eine Bestellung enthält eine oder
 
 ## Aktueller Entwicklungsstand
 
-- Produkte anlegen und nach ID abrufen;
+- Produkte anlegen, lesen, suchen, filtern, aktualisieren und deaktivieren;
 
 ## Dokumentation
 
@@ -220,19 +220,22 @@ Diese Zugangsdaten sind ausschließlich für die lokale Entwicklung vorgesehen.
 
 ## Implementierte Endpunkte
 
-| Methode | Route                   | Zugriff    | Zweck                                      |
-| ------- | ----------------------- | ---------- | ------------------------------------------ |
-| GET     | `/api/v1/health`        | öffentlich | Erreichbarkeit prüfen                      |
-| POST    | `/api/v1/auth/login`    | öffentlich | Anmelden und JWT erhalten                  |
-| GET     | `/api/v1/auth/me`       | angemeldet | Aktuellen Benutzer abrufen                 |
-| GET     | `/api/v1/auth/users`    | ADMIN      | Benutzerliste ohne Passwort-Hashes abrufen |
-| POST    | `/api/v1/customers`     | angemeldet | Kunden anlegen                             |
-| GET     | `/api/v1/customers/:id` | angemeldet | Kunden nach ID abrufen                     |
-| GET     | `/api/v1/customers`     | angemeldet | Kunden suchen und paginieren               |
-| PATCH   | `/api/v1/customers/:id` | angemeldet | Kundendaten teilweise ändern               |
-| DELETE  | `/api/v1/customers/:id` | ADMIN      | Kunden ohne Bestellungen löschen           |
-| POST    | `/api/v1/products`      | angemeldet | Produkt anlegen                            |
-| GET     | `/api/v1/products/:id`  | angemeldet | Produkt nach ID abrufen                    |
+| Methode | Route                   | Zugriff                           | Zweck                                      |
+| ------- | ----------------------- | --------------------------------- | ------------------------------------------ |
+| GET     | `/api/v1/health`        | öffentlich                        | Erreichbarkeit prüfen                      |
+| POST    | `/api/v1/auth/login`    | öffentlich                        | Anmelden und JWT erhalten                  |
+| GET     | `/api/v1/auth/me`       | angemeldet                        | Aktuellen Benutzer abrufen                 |
+| GET     | `/api/v1/auth/users`    | ADMIN                             | Benutzerliste ohne Passwort-Hashes abrufen |
+| POST    | `/api/v1/customers`     | angemeldet                        | Kunden anlegen                             |
+| GET     | `/api/v1/customers/:id` | angemeldet                        | Kunden nach ID abrufen                     |
+| GET     | `/api/v1/customers`     | angemeldet                        | Kunden suchen und paginieren               |
+| PATCH   | `/api/v1/customers/:id` | angemeldet                        | Kundendaten teilweise ändern               |
+| DELETE  | `/api/v1/customers/:id` | ADMIN                             | Kunden ohne Bestellungen löschen           |
+| POST    | `/api/v1/products`      | angemeldet                        | Produkt anlegen                            |
+| GET     | `/api/v1/products/:id`  | angemeldet                        | Produkt nach ID abrufen                    |
+| GET     | `/api/v1/products`      | angemeldet                        | Produkte suchen, filtern und paginieren    |
+| PATCH   | `/api/v1/products/:id`  | angemeldet; Aktivstatus nur ADMIN | Produkt teilweise ändern                   |
+| DELETE  | `/api/v1/products/:id`  | ADMIN                             | Produkt deaktivieren                       |
 
 ### Login
 
@@ -508,6 +511,93 @@ Authorization: Bearer <accessToken>
 Antwort: `200 OK` mit derselben Produktstruktur wie beim Anlegen.
 
 Fehler: `400` bei ungültiger UUID, `401` ohne gültigen Token und `404`, wenn das Produkt nicht existiert.
+
+### Produkte suchen und filtern
+
+```http
+GET /api/v1/products?search=tasse&active=true&page=1&limit=5
+Authorization: Bearer <accessToken>
+```
+
+Die Suche berücksichtigt SKU, Name und Beschreibung unabhängig von Groß- und Kleinschreibung.
+
+Parameter:
+
+- `search`: optionaler Suchtext, 1–100 Zeichen.
+- `active`: optional, ausschließlich `true` oder `false`. Ohne diesen Parameter werden beide Zustände berücksichtigt.
+- `page`: Seitennummer, standardmäßig 1, maximal 100000.
+- `limit`: Einträge pro Seite, standardmäßig 10, maximal 100.
+
+Antwort: `200 OK`
+
+```json
+{
+  "data": [],
+  "pagination": {
+    "page": 1,
+    "limit": 5,
+    "total": 0,
+    "totalPages": 0
+  }
+}
+```
+
+`data` enthält die gefundenen Produkte.
+
+Fehler: `400` bei ungültigen Parametern und `401` ohne gültigen Token.
+
+### Produkte aktualisieren
+
+```http
+PATCH /api/v1/products/<UUID>
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{
+  "priceCents": 2199
+}
+```
+
+Nur übergebene Felder werden geändert. Ein leeres Objekt wird abgelehnt. Mit `"description": null` wird die Beschreibung entfernt.
+
+Die Rolle `EMPLOYEE` darf SKU, Name, Beschreibung, Preis und Lagerbestand ändern. Änderungen des Aktivstatus bestehender Produkte sind ausschließlich für `ADMIN` erlaubt.
+
+Ein deaktiviertes Produkt kann durch ADMIN wieder aktiviert werden:
+
+```json
+{
+  "active": true
+}
+```
+
+Antwort: `200 OK` mit dem aktualisierten Produkt in `data`.
+
+Fehler:
+
+- `400`: ungültige Eingaben oder UUID.
+- `401`: fehlender oder ungültiger Token.
+- `403`: Änderung des Aktivstatus ohne ADMIN-Rolle.
+- `404`: Produkt nicht gefunden.
+- `409`: SKU bereits vergeben.
+
+### Produkte deaktivieren
+
+```http
+DELETE /api/v1/products/<UUID>
+Authorization: Bearer <accessToken>
+```
+
+Diese Route führt eine logische Deaktivierung durch: `active` wird auf `false` gesetzt. Der Datensatz und seine Beziehungen bleiben erhalten.
+
+Nur ADMIN darf diese Aktion ausführen. Wiederholte Deaktivierung eines vorhandenen Produkts liefert ebenfalls `204`.
+
+Antwort: `204 No Content` ohne Antwortkörper.
+
+Das Produkt bleibt über `GET /api/v1/products/<UUID>` abrufbar. Mit `GET /api/v1/products?active=false` können deaktivierte Produkte gesucht werden.
+
+Fehler: `400` bei ungültiger UUID, `401` ohne gültigen Token, `403` ohne ADMIN-Rolle und `404` bei fehlendem Produkt.
 
 ## Fehlerformat
 
