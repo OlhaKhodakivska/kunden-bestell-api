@@ -733,6 +733,53 @@ Die Tests prüfen HTTP-Verhalten, Login, JWT-Prüfung, Rollen, Kundenvalidierung
 
 Der Prisma-Zugriff wird in diesen Tests ersetzt. PostgreSQL und ein laufender Entwicklungsserver sind dafür nicht erforderlich. Die Tests verändern keine lokalen Daten.
 
+## Integrationstests mit PostgreSQL
+
+Die Integrationstests verwenden ausschließlich die separate lokale Datenbank `kunden_bestell_api_test`.
+
+PostgreSQL starten:
+
+```bash
+docker compose up -d
+```
+
+Im Projektverzeichnis eine nicht versionierte Datei `.env.test` erstellen:
+
+```env
+NODE_ENV=test
+PORT=3001
+DATABASE_URL="postgresql://postgres:postgres@localhost:5433/kunden_bestell_api_test?schema=public"
+JWT_SECRET="integration-test-secret-at-least-32-characters"
+JWT_EXPIRES_IN="1h"
+CORS_ORIGIN="http://localhost:5173"
+```
+
+Vorhandene Migrationen auf die Testdatenbank anwenden:
+
+```bash
+DATABASE_URL="postgresql://postgres:postgres@localhost:5433/kunden_bestell_api_test?schema=public" npx prisma migrate deploy
+```
+
+Integrationstests ausführen:
+
+```bash
+npm run test:integration
+```
+
+Ein laufender API-Server ist dafür nicht erforderlich.
+
+Geprüft werden:
+
+- Speicherung von Bestellungen, Positionspreisen und Lageränderungen.
+- Rollback nach einem gezielt verursachten Datenbankfehler.
+- Zwei gleichzeitige Bestellungen bei nur einem verfügbaren Artikel.
+
+Die Tests erstellen eigene Datensätze und entfernen sie anschließend. Der Rollback-Test fügt vorübergehend eine CHECK-Constraint hinzu und entfernt sie im `finally`-Block.
+
+Erwartete Prisma-Fehlermeldungen können während der Rollback- und Konkurrenztests erscheinen. Entscheidend ist das erfolgreiche Testergebnis.
+
+Die Konfiguration verhindert die Verwendung der regulären Entwicklungsdatenbank. Die Integrationstests werden getrennt von `npm test` ausgeführt.
+
 ## Team
 
 Einzelprojekt von: **Olha Khodakivska**
