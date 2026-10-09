@@ -64,6 +64,7 @@ Ein Kunde kann mehrere Bestellungen aufgeben. Eine Bestellung enthält eine oder
 ## Aktueller Entwicklungsstand
 
 - Produkte anlegen, lesen, suchen, filtern, aktualisieren und deaktivieren;
+- Bestellungen mit mehreren Positionen, gespeicherten Preisen und transaktionaler Lagerbestandsänderung;
 
 ## Dokumentation
 
@@ -236,6 +237,7 @@ Diese Zugangsdaten sind ausschließlich für die lokale Entwicklung vorgesehen.
 | GET     | `/api/v1/products`      | angemeldet                        | Produkte suchen, filtern und paginieren    |
 | PATCH   | `/api/v1/products/:id`  | angemeldet; Aktivstatus nur ADMIN | Produkt teilweise ändern                   |
 | DELETE  | `/api/v1/products/:id`  | ADMIN                             | Produkt deaktivieren                       |
+| POST    | `/api/v1/orders`        | angemeldet                        | Bestellung mit Positionen erstellen        |
 
 ### Login
 
@@ -598,6 +600,95 @@ Antwort: `204 No Content` ohne Antwortkörper.
 Das Produkt bleibt über `GET /api/v1/products/<UUID>` abrufbar. Mit `GET /api/v1/products?active=false` können deaktivierte Produkte gesucht werden.
 
 Fehler: `400` bei ungültiger UUID, `401` ohne gültigen Token, `403` ohne ADMIN-Rolle und `404` bei fehlendem Produkt.
+
+### Bestellung erstellen
+
+```http
+POST /api/v1/orders
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{
+  "customerId": "3d6fa886-91f3-4223-a848-78d29a3880fa",
+  "items": [
+    {
+      "productId": "005b0c6e-1474-463d-98da-d686d265d237",
+      "quantity": 2
+    },
+    {
+      "productId": "1ee2df7a-2d07-48f4-a9a1-50de72791b8c",
+      "quantity": 1
+    }
+  ]
+}
+```
+
+Validierungsregeln:
+
+- Kunde und Produkte werden durch gültige UUIDs angegeben.
+- Eine Bestellung enthält 1–100 Positionen.
+- Die Menge pro Position beträgt 1–1000 und muss ganzzahlig sein.
+- Jedes Produkt darf nur einmal pro Bestellung vorkommen.
+- Preise und Status werden vom Server bestimmt.
+- Unbekannte Felder werden abgelehnt.
+
+Der Kunde muss existieren. Alle Produkte müssen existieren, aktiv und in ausreichender Menge verfügbar sein.
+
+Die Erstellung erfolgt in einer Datenbanktransaktion:
+
+1. Kunde und Produkte prüfen.
+2. Aktuelle Produktpreise als `unitPriceCents` übernehmen.
+3. Lagerbestand reduzieren.
+4. Bestellung und Positionen speichern.
+
+Bei einem Fehler werden alle Änderungen dieser Transaktion zurückgesetzt. Konflikte gleichzeitiger Transaktionen werden bis zu drei Versuche lang erneut geprüft.
+
+Antwort: `201 Created`
+
+Gekürztes Antwortbeispiel für Produktpreise von 2199 und 1500 Cent:
+
+```json
+{
+  "data": {
+    "id": "82847102-6413-46ca-aae5-6ddd11dc8ceb",
+    "customerId": "3d6fa886-91f3-4223-a848-78d29a3880fa",
+    "status": "PENDING",
+    "items": [
+      {
+        "productId": "005b0c6e-1474-463d-98da-d686d265d237",
+        "quantity": 2,
+        "unitPriceCents": 2199
+      },
+      {
+        "productId": "1ee2df7a-2d07-48f4-a9a1-50de72791b8c",
+        "quantity": 1,
+        "unitPriceCents": 1500
+      }
+    ],
+    "totalCents": 5898
+  }
+}
+```
+
+Die vollständige Antwort enthält zusätzlich Zeitstempel der Bestellung sowie `id` und `orderId` jeder Position.
+
+`totalCents` wird aus den gespeicherten Positionspreisen berechnet. Spätere Änderungen am Produktpreis verändern bestehende Bestellpositionen nicht.
+
+Fehler:
+
+| Status | Code                 | Bedeutung                                          |
+| ------ | -------------------- | -------------------------------------------------- |
+| 400    | `VALIDATION_ERROR`   | Ungültige Eingabedaten                             |
+| 401    | `UNAUTHORIZED`       | Fehlender oder ungültiger Token                    |
+| 404    | `CUSTOMER_NOT_FOUND` | Kunde existiert nicht                              |
+| 404    | `PRODUCT_NOT_FOUND`  | Mindestens ein Produkt existiert nicht             |
+| 409    | `PRODUCT_INACTIVE`   | Produkt ist deaktiviert                            |
+| 409    | `INSUFFICIENT_STOCK` | Produkt ist nicht in ausreichender Menge verfügbar |
+| 409    | `ORDER_CONFLICT`     | Wiederholter Konflikt gleichzeitiger Änderungen    |
+
+Jeder erfolgreiche POST erzeugt eine neue Bestellung. Wiederholte Anfragen werden nicht automatisch dedupliziert.
 
 ## Fehlerformat
 

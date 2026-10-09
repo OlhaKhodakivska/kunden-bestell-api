@@ -9,7 +9,7 @@ import { authRouter } from "./modules/auth/auth.routes.js";
 import { healthRouter } from "./routes/health.js";
 import { customerRouter } from "./modules/customers/customer.routes.js";
 import { productRouter } from "./modules/products/product.routes.js";
-
+import { orderRouter } from "./modules/orders/order.routes.js";
 
 export const createApp = () => {
   const app = express();
@@ -39,6 +39,7 @@ export const createApp = () => {
   app.use("/api/v1/auth", authRouter);
   app.use("/api/v1/customers", customerRouter);
   app.use("/api/v1/products", productRouter);
+  app.use("/api/v1/orders", orderRouter);
   app.use(notFound);
   app.use(errorHandler);
 
