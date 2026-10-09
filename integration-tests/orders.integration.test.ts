@@ -9,7 +9,13 @@ import {
 } from "vitest";
 import { env } from "../src/config/env.js";
 import { prisma } from "../src/lib/prisma.js";
-import { createOrder } from "../src/modules/orders/order.service.js";
+import {
+  createOrder,
+  updateOrderStatus
+} from "../src/modules/orders/order.service.js";
+import { OrderStatus } from "@prisma/client";
+
+
 
 const databaseUrl = new URL(env.DATABASE_URL);
 
@@ -238,5 +244,130 @@ describe("Bestellungen mit echter PostgreSQL-Datenbank", () => {
 
     expect(positions).toHaveLength(1);
     expect(positions[0]?.quantity).toBe(1);
+  });
+});
+
+describe("Stornierung mit echter PostgreSQL-Datenbank", () => {
+  it("stellt bei zwei gleichzeitigen Stornierungen den Bestand nur einmal wieder her", async () => {
+    const order = await createOrder({
+      customerId,
+      items: [
+        { productId: cupId, quantity: 2 },
+        { productId: plateId, quantity: 1 }
+      ]
+    });
+
+    const results = await Promise.all([
+      updateOrderStatus(order.id, OrderStatus.CANCELLED),
+      updateOrderStatus(order.id, OrderStatus.CANCELLED)
+    ]);
+
+    expect(results.map((result) => result.status)).toEqual([
+      OrderStatus.CANCELLED,
+      OrderStatus.CANCELLED
+    ]);
+
+    const cup = await prisma.product.findUniqueOrThrow({
+      where: { id: cupId }
+    });
+
+    const plate = await prisma.product.findUniqueOrThrow({
+      where: { id: plateId }
+    });
+
+    const storedOrder = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id },
+      include: { items: true }
+    });
+
+    expect(cup.stock).toBe(20);
+    expect(plate.stock).toBe(10);
+    expect(storedOrder.status).toBe(OrderStatus.CANCELLED);
+    expect(storedOrder.items).toHaveLength(2);
+  });
+
+  it("verweigert die Stornierung einer versendeten Bestellung", async () => {
+    const order = await createOrder({
+      customerId,
+      items: [
+        { productId: cupId, quantity: 2 },
+        { productId: plateId, quantity: 1 }
+      ]
+    });
+
+    await updateOrderStatus(order.id, OrderStatus.CONFIRMED);
+    await updateOrderStatus(order.id, OrderStatus.SHIPPED);
+
+    await expect(
+      updateOrderStatus(order.id, OrderStatus.CANCELLED)
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: "INVALID_STATUS_TRANSITION"
+    });
+
+    const storedOrder = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id }
+    });
+
+    const cup = await prisma.product.findUniqueOrThrow({
+      where: { id: cupId }
+    });
+
+    const plate = await prisma.product.findUniqueOrThrow({
+      where: { id: plateId }
+    });
+
+    expect(storedOrder.status).toBe(OrderStatus.SHIPPED);
+    expect(cup.stock).toBe(18);
+    expect(plate.stock).toBe(9);
+  });
+
+  it("setzt Status und bereits zurückgebuchte Mengen bei einem Bestandskonflikt zurück", async () => {
+    const order = await createOrder({
+      customerId,
+      items: [
+        { productId: cupId, quantity: 2 },
+        { productId: plateId, quantity: 1 }
+      ]
+    });
+
+    const fullProductId =
+      cupId.localeCompare(plateId) < 0 ? plateId : cupId;
+
+    await prisma.product.update({
+      where: { id: fullProductId },
+      data: { stock: 2147483647 }
+    });
+
+    const cupBefore = await prisma.product.findUniqueOrThrow({
+      where: { id: cupId }
+    });
+
+    const plateBefore = await prisma.product.findUniqueOrThrow({
+      where: { id: plateId }
+    });
+
+    await expect(
+      updateOrderStatus(order.id, OrderStatus.CANCELLED)
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: "STOCK_LIMIT_EXCEEDED"
+    });
+
+    const storedOrder = await prisma.order.findUniqueOrThrow({
+      where: { id: order.id }
+    });
+
+    const cupAfter = await prisma.product.findUniqueOrThrow({
+      where: { id: cupId }
+    });
+
+    const plateAfter = await prisma.product.findUniqueOrThrow({
+      where: { id: plateId }
+    });
+
+    expect(storedOrder.status).toBe(OrderStatus.PENDING);
+    expect(cupAfter.stock).toBe(cupBefore.stock);
+    expect(plateAfter.stock).toBe(plateBefore.stock);
   });
 });

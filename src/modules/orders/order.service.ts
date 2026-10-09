@@ -1,7 +1,10 @@
-import { Prisma } from "@prisma/client";
+import { OrderStatus, Prisma } from "@prisma/client";
 import { AppError } from "../../errors/app-error.js";
 import { prisma } from "../../lib/prisma.js";
-import type { CreateOrderInput } from "./order.schema.js";
+import type {
+  CreateOrderInput,
+  ListOrdersInput
+} from "./order.schema.js";
 
 export async function createOrder(input: CreateOrderInput) {
   const sortedItems = [...input.items].sort((a, b) =>
@@ -150,5 +153,239 @@ export async function createOrder(input: CreateOrderInput) {
     409,
     "ORDER_CONFLICT",
     "Die Bestellung konnte nicht abgeschlossen werden."
+  );
+}
+
+function addOrderTotal<
+  T extends {
+    items: Array<{
+      quantity: number;
+      unitPriceCents: number;
+    }>;
+  }
+>(order: T) {
+  return {
+    ...order,
+    totalCents: order.items.reduce(
+      (total, item) =>
+        total + item.quantity * item.unitPriceCents,
+      0
+    )
+  };
+}
+
+export async function getOrderById(id: string) {
+  const order = await prisma.order.findUnique({
+    where: { id },
+    include: {
+      customer: true,
+      items: {
+        include: {
+          product: {
+            select: {
+              id: true,
+              sku: true,
+              name: true
+            }
+          }
+        }
+      }
+    }
+  });
+
+  if (!order) {
+    throw new AppError(
+      404,
+      "ORDER_NOT_FOUND",
+      "Bestellung nicht gefunden."
+    );
+  }
+
+  return addOrderTotal(order);
+}
+
+export async function listOrders(input: ListOrdersInput) {
+  const { customerId, status, page, limit } = input;
+
+  const where: Prisma.OrderWhereInput = {};
+
+  if (customerId !== undefined) {
+    where.customerId = customerId;
+  }
+
+  if (status !== undefined) {
+    where.status = status;
+  }
+
+  const [orders, total] = await prisma.$transaction(
+    [
+      prisma.order.findMany({
+        where,
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: [
+          { createdAt: "desc" },
+          { id: "desc" }
+        ],
+        include: {
+          customer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true
+            }
+          },
+          items: true
+        }
+      }),
+      prisma.order.count({ where })
+    ],
+    {
+      isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead
+    }
+  );
+
+  return {
+    data: orders.map((order) => addOrderTotal(order)),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit)
+    }
+  };
+}
+
+const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
+  PENDING: [
+    OrderStatus.CONFIRMED,
+    OrderStatus.CANCELLED
+  ],
+  CONFIRMED: [
+    OrderStatus.SHIPPED,
+    OrderStatus.CANCELLED
+  ],
+  SHIPPED: [],
+  CANCELLED: []
+};
+
+export async function updateOrderStatus(
+  id: string,
+  targetStatus: OrderStatus
+) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await prisma.$transaction(
+        async (transaction) => {
+          const order = await transaction.order.findUnique({
+            where: { id },
+            include: { items: true }
+          });
+
+          if (!order) {
+            throw new AppError(
+              404,
+              "ORDER_NOT_FOUND",
+              "Bestellung nicht gefunden."
+            );
+          }
+
+          if (order.status === targetStatus) {
+            return addOrderTotal(order);
+          }
+
+          if (!allowedTransitions[order.status].includes(targetStatus)) {
+            throw new AppError(
+              409,
+              "INVALID_STATUS_TRANSITION",
+              "Dieser Statuswechsel ist nicht erlaubt."
+            );
+          }
+
+          const updated = await transaction.order.updateMany({
+            where: {
+              id,
+              status: order.status
+            },
+            data: {
+              status: targetStatus
+            }
+          });
+
+          if (updated.count !== 1) {
+            throw new AppError(
+              409,
+              "ORDER_CONFLICT",
+              "Der Bestellstatus wurde gleichzeitig geändert."
+            );
+          }
+
+          if (targetStatus === OrderStatus.CANCELLED) {
+            const sortedItems = [...order.items].sort((a, b) =>
+              a.productId.localeCompare(b.productId)
+            );
+
+            for (const item of sortedItems) {
+              const restored = await transaction.product.updateMany({
+                where: {
+                  id: item.productId,
+                  stock: {
+                    lte: 2147483647 - item.quantity
+                  }
+                },
+                data: {
+                  stock: {
+                    increment: item.quantity
+                  }
+                }
+              });
+
+              if (restored.count !== 1) {
+                throw new AppError(
+                  409,
+                  "STOCK_LIMIT_EXCEEDED",
+                  "Der Lagerbestand kann nicht sicher wiederhergestellt werden."
+                );
+              }
+            }
+          }
+
+          const result = await transaction.order.findUniqueOrThrow({
+            where: { id },
+            include: { items: true }
+          });
+
+          return addOrderTotal(result);
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          maxWait: 5000,
+          timeout: 10000
+        }
+      );
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2034"
+      ) {
+        if (attempt < 2) {
+          continue;
+        }
+
+        throw new AppError(
+          409,
+          "ORDER_CONFLICT",
+          "Gleichzeitige Änderungen. Bitte erneut versuchen."
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  throw new AppError(
+    409,
+    "ORDER_CONFLICT",
+    "Der Bestellstatus konnte nicht geändert werden."
   );
 }

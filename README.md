@@ -221,23 +221,27 @@ Diese Zugangsdaten sind ausschließlich für die lokale Entwicklung vorgesehen.
 
 ## Implementierte Endpunkte
 
-| Methode | Route                   | Zugriff                           | Zweck                                      |
-| ------- | ----------------------- | --------------------------------- | ------------------------------------------ |
-| GET     | `/api/v1/health`        | öffentlich                        | Erreichbarkeit prüfen                      |
-| POST    | `/api/v1/auth/login`    | öffentlich                        | Anmelden und JWT erhalten                  |
-| GET     | `/api/v1/auth/me`       | angemeldet                        | Aktuellen Benutzer abrufen                 |
-| GET     | `/api/v1/auth/users`    | ADMIN                             | Benutzerliste ohne Passwort-Hashes abrufen |
-| POST    | `/api/v1/customers`     | angemeldet                        | Kunden anlegen                             |
-| GET     | `/api/v1/customers/:id` | angemeldet                        | Kunden nach ID abrufen                     |
-| GET     | `/api/v1/customers`     | angemeldet                        | Kunden suchen und paginieren               |
-| PATCH   | `/api/v1/customers/:id` | angemeldet                        | Kundendaten teilweise ändern               |
-| DELETE  | `/api/v1/customers/:id` | ADMIN                             | Kunden ohne Bestellungen löschen           |
-| POST    | `/api/v1/products`      | angemeldet                        | Produkt anlegen                            |
-| GET     | `/api/v1/products/:id`  | angemeldet                        | Produkt nach ID abrufen                    |
-| GET     | `/api/v1/products`      | angemeldet                        | Produkte suchen, filtern und paginieren    |
-| PATCH   | `/api/v1/products/:id`  | angemeldet; Aktivstatus nur ADMIN | Produkt teilweise ändern                   |
-| DELETE  | `/api/v1/products/:id`  | ADMIN                             | Produkt deaktivieren                       |
-| POST    | `/api/v1/orders`        | angemeldet                        | Bestellung mit Positionen erstellen        |
+| Methode | Route                       | Zugriff                           | Zweck                                      |
+| ------- | --------------------------- | --------------------------------- | ------------------------------------------ |
+| GET     | `/api/v1/health`            | öffentlich                        | Erreichbarkeit prüfen                      |
+| POST    | `/api/v1/auth/login`        | öffentlich                        | Anmelden und JWT erhalten                  |
+| GET     | `/api/v1/auth/me`           | angemeldet                        | Aktuellen Benutzer abrufen                 |
+| GET     | `/api/v1/auth/users`        | ADMIN                             | Benutzerliste ohne Passwort-Hashes abrufen |
+| POST    | `/api/v1/customers`         | angemeldet                        | Kunden anlegen                             |
+| GET     | `/api/v1/customers/:id`     | angemeldet                        | Kunden nach ID abrufen                     |
+| GET     | `/api/v1/customers`         | angemeldet                        | Kunden suchen und paginieren               |
+| PATCH   | `/api/v1/customers/:id`     | angemeldet                        | Kundendaten teilweise ändern               |
+| DELETE  | `/api/v1/customers/:id`     | ADMIN                             | Kunden ohne Bestellungen löschen           |
+| POST    | `/api/v1/products`          | angemeldet                        | Produkt anlegen                            |
+| GET     | `/api/v1/products/:id`      | angemeldet                        | Produkt nach ID abrufen                    |
+| GET     | `/api/v1/products`          | angemeldet                        | Produkte suchen, filtern und paginieren    |
+| PATCH   | `/api/v1/products/:id`      | angemeldet; Aktivstatus nur ADMIN | Produkt teilweise ändern                   |
+| DELETE  | `/api/v1/products/:id`      | ADMIN                             | Produkt deaktivieren                       |
+| POST    | `/api/v1/orders`            | angemeldet                        | Bestellung mit Positionen erstellen        |
+| GET     | `/api/v1/orders`            | angemeldet                        | Bestellungen filtern und paginieren        |
+| GET     | `/api/v1/orders/:id`        | angemeldet                        | Bestelldetails abrufen                     |
+| PATCH   | `/api/v1/orders/:id/status` | angemeldet; Stornierung nur ADMIN | Bestellstatus ändern                       |
+| DELETE  | `/api/v1/orders/:id`        | ADMIN                             | Bestellung stornieren                      |
 
 ### Login
 
@@ -690,6 +694,111 @@ Fehler:
 
 Jeder erfolgreiche POST erzeugt eine neue Bestellung. Wiederholte Anfragen werden nicht automatisch dedupliziert.
 
+### Bestellungen filtern und paginieren
+
+```http
+GET /api/v1/orders?status=PENDING&page=1&limit=5
+Authorization: Bearer <accessToken>
+```
+
+Parameter:
+
+- `customerId`: optionale UUID eines Kunden.
+- `status`: optional, `PENDING`, `CONFIRMED`, `SHIPPED` oder `CANCELLED`.
+- `page`: standardmäßig 1, maximal 100000.
+- `limit`: standardmäßig 10, maximal 100.
+
+Antwort: `200 OK`
+
+```json
+{
+  "data": [],
+  "pagination": {
+    "page": 1,
+    "limit": 5,
+    "total": 0,
+    "totalPages": 0
+  }
+}
+```
+
+Die Einträge enthalten Bestelldaten, Kunden-ID und Kundennamen, Positionen sowie `totalCents`. Die Summe wird aus den gespeicherten Positionspreisen berechnet.
+
+Fehler: `400` bei ungültigen Parametern und `401` ohne gültigen Token.
+
+### Bestelldetails abrufen
+
+```http
+GET /api/v1/orders/<UUID>
+Authorization: Bearer <accessToken>
+```
+
+Antwort: `200 OK` mit der Bestellung in `data`.
+
+Die Antwort enthält:
+
+- ID, Kunden-ID, Status und Zeitstempel.
+- Aktuelle Kundendaten.
+- Bestellpositionen mit gespeicherten Preisen und Mengen.
+- Aktuelle Produkt-ID, SKU und Produktname je Position.
+- `totalCents` aus den historischen Positionspreisen.
+
+Fehler: `400` bei ungültiger UUID, `401` ohne gültigen Token und `404` mit `ORDER_NOT_FOUND`, wenn die Bestellung nicht existiert.
+
+### Bestellstatus ändern
+
+```http
+PATCH /api/v1/orders/<UUID>/status
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+```
+
+```json
+{
+  "status": "CONFIRMED"
+}
+```
+
+Erlaubte Übergänge:
+
+| Aktueller Status | Zielstatus | Zugriff    |
+| ---------------- | ---------- | ---------- |
+| PENDING          | CONFIRMED  | angemeldet |
+| CONFIRMED        | SHIPPED    | angemeldet |
+| PENDING          | CANCELLED  | ADMIN      |
+| CONFIRMED        | CANCELLED  | ADMIN      |
+
+`SHIPPED` und `CANCELLED` sind Endzustände. Eine erneute Anfrage mit demselben Status verändert nichts. Für das Ziel `CANCELLED` ist auch bei Wiederholung ADMIN erforderlich.
+
+Bei Stornierung werden die Positionsmengen einmalig auf den Lagerbestand zurückgebucht. Statusänderung und Rückbuchung erfolgen in einer gemeinsamen Transaktion.
+
+Antwort: `200 OK` mit der Bestellung, ihren Positionen und `totalCents` in `data`.
+
+Fehler:
+
+- `400`: ungültige UUID oder Eingabedaten.
+- `401`: fehlender oder ungültiger Token.
+- `403`: Stornierung ohne ADMIN-Rolle.
+- `404`: Bestellung nicht gefunden.
+- `409 / INVALID_STATUS_TRANSITION`: unerlaubter Statuswechsel.
+- `409 / ORDER_CONFLICT`: Konflikt gleichzeitiger Änderungen.
+- `409 / STOCK_LIMIT_EXCEEDED`: Lagerbestand kann nicht sicher zurückgebucht werden.
+
+### Bestellung stornieren
+
+```http
+DELETE /api/v1/orders/<UUID>
+Authorization: Bearer <accessToken>
+```
+
+Nur ADMIN darf diese Route verwenden. Sie storniert eine offene Bestellung, statt sie physisch zu löschen.
+
+Antwort: `204 No Content` ohne Antwortkörper.
+
+Die Bestellung und ihre Positionen bleiben erhalten. Wiederholte Stornierung liefert ebenfalls `204` und erhöht den Bestand nicht erneut. Versendete Bestellungen können nicht storniert werden.
+
+Die Fehlerfälle entsprechen der Statusänderung. Ohne ADMIN-Rolle wird `403` zurückgegeben.
+
 ## Fehlerformat
 
 ```json
@@ -773,6 +882,9 @@ Geprüft werden:
 - Speicherung von Bestellungen, Positionspreisen und Lageränderungen.
 - Rollback nach einem gezielt verursachten Datenbankfehler.
 - Zwei gleichzeitige Bestellungen bei nur einem verfügbaren Artikel.
+- Einmalige Rückbuchung bei gleichzeitigen Stornierungen.
+- Verweigerung der Stornierung versendeter Bestellungen.
+- Rollback von Status und Rückbuchungen bei einem Bestandskonflikt.
 
 Die Tests erstellen eigene Datensätze und entfernen sie anschließend. Der Rollback-Test fügt vorübergehend eine CHECK-Constraint hinzu und entfernt sie im `finally`-Block.
 

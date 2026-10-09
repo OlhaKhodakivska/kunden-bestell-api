@@ -1,3 +1,4 @@
+import { OrderStatus } from "@prisma/client";
 import { z } from "zod";
 
 const orderItemSchema = z
@@ -40,8 +41,44 @@ export const createOrderSchema = z
     });
   });
 
+const positiveIntegerQuery = z
+  .string()
+  .regex(/^[1-9]\d*$/, "Eine positive ganze Zahl ist erforderlich.")
+  .transform(Number)
+  .pipe(z.number().int().max(Number.MAX_SAFE_INTEGER));
+
+export const listOrdersSchema = z
+  .object({
+    customerId: z.string().uuid().optional(),
+
+    status: z.enum(OrderStatus).optional(),
+
+    page: positiveIntegerQuery
+      .pipe(z.number().max(100000))
+      .default(1),
+
+    limit: positiveIntegerQuery
+      .pipe(z.number().max(100))
+      .default(10)
+  })
+  .strict();
+
+export const updateOrderStatusSchema = z
+  .object({
+    status: z.enum(OrderStatus)
+  })
+  .strict();
+
 export const orderIdSchema = z.string().uuid();
 
 export type CreateOrderInput = z.infer<
   typeof createOrderSchema
+>;
+
+export type ListOrdersInput = z.infer<
+  typeof listOrdersSchema
+>;
+
+export type UpdateOrderStatusInput = z.infer<
+  typeof updateOrderStatusSchema
 >;
