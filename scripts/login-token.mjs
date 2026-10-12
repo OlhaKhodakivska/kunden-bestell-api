@@ -7,6 +7,16 @@ async function main() {
     throw new Error("Erlaubte Konten: admin oder employee.");
   }
 
+  if (
+    process.env.NODE_ENV === "production" &&
+    !process.env.API_BASE_URL
+  ) {
+    throw new Error("API_BASE_URL fehlt für die Produktionsumgebung.");
+  }
+
+  const baseUrl =
+    process.env.API_BASE_URL ?? "http://localhost:3000";
+
   const prefix =
     account === "employee" ? "SEED_EMPLOYEE" : "SEED_ADMIN";
 
@@ -18,7 +28,7 @@ async function main() {
   }
 
   const response = await fetch(
-    "http://localhost:3000/api/v1/auth/login",
+    new URL("/api/v1/auth/login", baseUrl),
     {
       method: "POST",
       headers: {

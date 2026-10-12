@@ -4,6 +4,14 @@ Eine REST-API zur zentralen Verwaltung von Kunden, Produkten und Bestellungen f�
 
 Das Projekt wird als Einzelprojekt im Rahmen des Backend-Modulabschlusses entwickelt.
 
+## Live-API
+
+- Backend: https://kunden-bestell-api.onrender.com
+- Health: https://kunden-bestell-api.onrender.com/api/v1/health
+
+Geschützte Endpunkte benötigen einen gültigen Bearer-Token.
+Zugangsdaten werden separat und niemals im Repository geteilt.
+
 ## Problemstellung
 
 Kleine Händler verwalten Kunden, Produkte und Bestellungen häufig in unterschiedlichen Tabellen oder Dateien. Dadurch können doppelte Daten, unklare Lagerbestände und schwer nachvollziehbare Bestellungen entstehen.
@@ -891,6 +899,97 @@ Die Tests erstellen eigene Datensätze und entfernen sie anschließend. Der Roll
 Erwartete Prisma-Fehlermeldungen können während der Rollback- und Konkurrenztests erscheinen. Entscheidend ist das erfolgreiche Testergebnis.
 
 Die Konfiguration verhindert die Verwendung der regulären Entwicklungsdatenbank. Die Integrationstests werden getrennt von `npm test` ausgeführt.
+
+## Deployment
+
+Das Backend läuft als Node.js-Web-Service auf Render.
+Die PostgreSQL-Datenbank wird separat bei Neon gehostet.
+
+### Render-Konfiguration
+
+| Einstellung       | Wert                                    |
+| ----------------- | --------------------------------------- |
+| Branch            | `main`                                  |
+| Node.js           | `24.x`, über `package.json`             |
+| Build Command     | `npm ci --include=dev && npm run build` |
+| Start Command     | `npm run start:deploy`                  |
+| Health Check Path | `/api/v1/health`                        |
+| Auto-Deploy       | `On Commit`                             |
+
+Der Build generiert Prisma Client und kompiliert TypeScript.
+Beim Start werden vorhandene Migrationen mit `prisma migrate deploy` angewendet.
+
+Die Entwicklungsabhängigkeiten werden für Build und Prisma CLI mit installiert. Das Testsystem wird nicht als öffentlicher Server gestartet.
+
+### Umgebungsvariablen auf Render
+
+| Variable                            | Zweck                                         |
+| ----------------------------------- | --------------------------------------------- |
+| `NODE_ENV=production`               | Produktionsmodus                              |
+| `DATABASE_URL`                      | Direkte PostgreSQL-Verbindung zu Neon mit TLS |
+| `JWT_SECRET`                        | Separater zufälliger Produktionsschlüssel     |
+| `JWT_EXPIRES_IN=1h`                 | Gültigkeitsdauer des JWT                      |
+| `CORS_ORIGIN=http://localhost:5173` | Aktuell erlaubter Browser-Client              |
+| `TRUST_PROXY_HOPS=1`                | Vertrauenswürdiger Proxy-Hop                  |
+
+`PORT` wird von Render bereitgestellt.
+
+Secrets werden im Render-Dashboard verwaltet. Lokale `.env`-Dateien sind von Git ausgeschlossen. Connection Strings, Passwörter und JWT-Schlüssel gehören nicht in die Dokumentation.
+
+### Produktionsdatenbank vorbereiten
+
+Die lokale Datei `.env.production` enthält den Neon-Verbindungsstring und die separat gewählten Seed-Zugangsdaten.
+
+Vorhandene Migrationen anwenden:
+
+```bash
+node --env-file=.env.production node_modules/prisma/build/index.js migrate deploy
+```
+
+Initialen Administrator erstellen:
+
+```bash
+node --env-file=.env.production --import tsx prisma/seed.ts
+```
+
+Das Seed-Skript verändert bereits vorhandene Benutzer nicht.
+
+### Öffentliche API prüfen
+
+```bash
+curl https://kunden-bestell-api.onrender.com/api/v1/health
+```
+
+Erwartet: `200 OK`.
+
+Zusätzlich wurden Anmeldung sowie das Anlegen und Abrufen eines Kunden über die öffentliche HTTPS-Adresse erfolgreich überprüft.
+
+### Produktions-Login für lokale Prüfungen
+
+In `.env.production` zusätzlich konfigurieren:
+
+```env
+API_BASE_URL="https://kunden-bestell-api.onrender.com"
+```
+
+Token im Terminal speichern:
+
+```bash
+PRODUCTION_TOKEN=$(node --env-file=.env.production scripts/login-token.mjs admin)
+```
+
+Aktuellen Benutzer prüfen:
+
+```bash
+curl https://kunden-bestell-api.onrender.com/api/v1/auth/me \
+  -H "Authorization: Bearer $PRODUCTION_TOKEN"
+```
+
+### Einschränkung des kostenlosen Hostings
+
+Der kostenlose Render-Service kann nach Inaktivität einschlafen.
+Der erste Aufruf nach einer Pause kann ungefähr eine Minute dauern.
+Die Daten bleiben in der separat gehosteten Neon-Datenbank gespeichert.
 
 ## Team
 
