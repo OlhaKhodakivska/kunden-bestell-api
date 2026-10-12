@@ -13,6 +13,13 @@ const envSchema = z.object({
     .max(65535)
     .default(3000),
 
+  TRUST_PROXY_HOPS: z.coerce
+  .number()
+  .int()
+  .min(0)
+  .max(10)
+  .default(0),
+
   DATABASE_URL: z.string().min(1),
 
   JWT_SECRET: z.string().min(32),

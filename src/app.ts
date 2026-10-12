@@ -13,6 +13,7 @@ import { orderRouter } from "./modules/orders/order.routes.js";
 
 export const createApp = () => {
   const app = express();
+  app.set("trust proxy", env.TRUST_PROXY_HOPS);
 
   app.disable("x-powered-by");
   app.use(helmet());
