@@ -900,6 +900,33 @@ Erwartete Prisma-Fehlermeldungen können während der Rollback- und Konkurrenzte
 
 Die Konfiguration verhindert die Verwendung der regulären Entwicklungsdatenbank. Die Integrationstests werden getrennt von `npm test` ausgeführt.
 
+### HTTP-Integrationstests
+
+Zusätzlich werden API-Anfragen mit Supertest und echter PostgreSQL-Testdatenbank geprüft. Prisma wird dabei nicht gemockt.
+
+Der vollständige Ablauf umfasst:
+
+- Login als EMPLOYEE und ADMIN.
+- Kunden und Produkte über HTTP anlegen.
+- Bestellung erstellen und Lagerbestand prüfen.
+- Produktpreis ändern und historische Bestellpreise überprüfen.
+- Bestellung bestätigen und Berechtigungen prüfen.
+- Bestellung stornieren und einmalige Rückbuchung kontrollieren.
+- Löschen eines Kunden mit Bestellung verhindern.
+
+Weitere Fehlerfälle:
+
+- Falsche Login-Daten.
+- Bestellungen ohne Token.
+- Doppelte Kunden-E-Mails und Produkt-SKU.
+- Unzureichender Lagerbestand.
+- Kundenlöschung ohne ADMIN-Rolle.
+- Ungültige Bestellmengen.
+
+Nach abgelehnten Anfragen wird überprüft, dass keine unerwünschten Datenänderungen erfolgt sind.
+
+Die Tests erstellen eigene Datensätze und entfernen ausschließlich diese Testdaten anschließend.
+
 ## Deployment
 
 Das Backend läuft als Node.js-Web-Service auf Render.
