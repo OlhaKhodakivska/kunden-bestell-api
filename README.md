@@ -71,23 +71,23 @@ Ein Kunde kann mehrere Bestellungen aufgeben. Eine Bestellung enthält eine oder
 
 ## Aktueller Entwicklungsstand
 
-- Produkte anlegen, lesen, suchen, filtern, aktualisieren und deaktivieren;
-- Bestellungen mit mehreren Positionen, gespeicherten Preisen und transaktionaler Lagerbestandsänderung;
+Folgende Funktionen sind implementiert:
+
+- TypeScript-/Express-Anwendung mit modularer Struktur.
+- PostgreSQL-Datenbank mit Prisma-Migrationen.
+- Zentrale Konfiguration, Validierung und Fehlerbehandlung.
+- Login mit bcrypt und JWT sowie rollenbasierte Autorisierung.
+- Kundenverwaltung mit CRUD, Suche und Paginierung.
+- Produktverwaltung mit Suche, Aktivfilter, Paginierung und Deaktivierung.
+- Bestellungen mit historischen Positionspreisen und transaktionalen Lageränderungen.
+- Bestellliste, Details, kontrollierte Statuswechsel und sichere Stornierung.
+- API-Tests mit gemocktem Prisma und Integrationstests mit PostgreSQL.
+- Deployment auf Render mit einer separat gehosteten Neon-Datenbank.
 
 ## Dokumentation
 
 - [Projektplan mit ER-Diagramm und Endpunkten](docs/PROJEKTPLAN.md)
 - [Tagesplan bis zur Abgabe](docs/TAGESPLAN.md)
-
-Folgende Funktionen sind bereits vorhanden:
-
-- TypeScript-/Express-Grundgerüst;
-- PostgreSQL-Datenbank und Prisma-Migration;
-- zentrale Konfiguration und Fehlerbehandlung;
-- Login mit bcrypt und JWT;
-- Authentifizierung und Rollenprüfung;
-- Kunden anlegen und nach ID abrufen;
-- automatisierte API-Tests.
 
 ## API-Endpunkte
 
@@ -96,6 +96,112 @@ Folgende Funktionen sind bereits vorhanden:
 ```http
 GET /api/v1/health
 ```
+
+Antwort: `200 OK`
+
+```json
+{
+  "status": "ok",
+  "service": "kunden-bestell-api"
+}
+```
+
+Dieser Endpoint prüft die Erreichbarkeit der Anwendung, nicht die Datenbankverbindung.
+
+## Lokale Einrichtung
+
+Voraussetzungen:
+
+- Node.js 24.x und npm.
+- Git.
+- Docker mit Docker Compose.
+- Zugriff auf das private GitHub-Repository.
+
+### Repository und Abhängigkeiten
+
+```bash
+git clone https://github.com/OlhaKhodakivska/kunden-bestell-api.git
+cd kunden-bestell-api
+npm ci
+cp .env.example .env
+```
+
+### Konfiguration
+
+Die neu erstellte `.env` vor dem Start bearbeiten:
+
+| Variable              | Lokaler Wert / Bedeutung                                  |
+| --------------------- | --------------------------------------------------------- |
+| `NODE_ENV`            | `development`                                             |
+| `PORT`                | `3000`                                                    |
+| `TRUST_PROXY_HOPS`    | `0`                                                       |
+| `DATABASE_URL`        | Lokale PostgreSQL-Adresse aus `.env.example`, Port `5433` |
+| `JWT_SECRET`          | Eigener zufälliger Schlüssel, mindestens 32 Zeichen       |
+| `JWT_EXPIRES_IN`      | `15m`, `30m` oder `1h`; standardmäßig `1h`                |
+| `CORS_ORIGIN`         | `http://localhost:5173`                                   |
+| `SEED_ADMIN_EMAIL`    | E-Mail des lokalen Administrators                         |
+| `SEED_ADMIN_PASSWORD` | Eigenes lokales Passwort, mindestens 12 Zeichen           |
+
+Einen zufälligen JWT-Schlüssel erzeugen:
+
+```bash
+node -e "console.log(require('node:crypto').randomBytes(48).toString('hex'))"
+```
+
+Den ausgegebenen Wert als `JWT_SECRET` in `.env` eintragen. Platzhalter durch eigene Werte ersetzen. Secrets nicht committen.
+
+### Datenbank vorbereiten
+
+```bash
+docker compose up -d
+docker compose ps
+npm run db:generate
+npm run db:deploy
+npm run db:seed
+```
+
+`db:deploy` wendet die vorhandenen Migrationen an. Neue Migrationen werden während der Entwicklung mit `db:migrate` erstellt.
+
+Falls PostgreSQL noch nicht bereit ist, kurz warten und den fehlgeschlagenen Datenbankbefehl erneut ausführen.
+
+### Anwendung starten
+
+```bash
+npm run dev
+```
+
+In einem zweiten Terminal prüfen:
+
+```bash
+curl http://localhost:3000/api/v1/health
+```
+
+Erwartet: `200 OK` und der Status `ok`.
+
+Der Entwicklungsserver muss während der API-Anfragen laufen. Zum Beenden im ersten Terminal `Ctrl+C` drücken.
+
+### Kompilierte Anwendung starten
+
+Den Entwicklungsserver vorher beenden:
+
+```bash
+npm run build
+npm start
+```
+
+Die lokale API ist unter `http://localhost:3000/api/v1` erreichbar.
+
+### Lokalen Login prüfen
+
+Mit den in `.env` eingetragenen Seed-Zugangsdaten:
+
+```bash
+TOKEN=$(node scripts/login-token.mjs admin)
+curl http://localhost:3000/api/v1/auth/me \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Die Variable `TOKEN` gilt nur im aktuellen Terminal. Tokens laufen ab; bei Bedarf erneut anmelden.
 
 ## Lokale Datenbank
 
@@ -189,8 +295,18 @@ Authorization: Bearer <accessToken>
 
 Rollen:
 
-- `EMPLOYEE`: Kunden suchen, anlegen, lesen und aktualisieren sowie eigene Benutzerdaten abrufen.
-- `ADMIN`: dieselben Berechtigungen und zusätzlich Kunden ohne Bestellungen löschen sowie die Benutzerliste abrufen.
+| Aktion                                                             | EMPLOYEE | ADMIN |
+| ------------------------------------------------------------------ | :------: | :---: |
+| Eigene Benutzerdaten abrufen                                       |    ja    |  ja   |
+| Benutzerliste abrufen                                              |   nein   |  ja   |
+| Kunden anlegen, lesen, suchen und aktualisieren                    |    ja    |  ja   |
+| Kunden ohne Bestellungen löschen                                   |   nein   |  ja   |
+| Produkte anlegen, lesen, suchen und filtern                        |    ja    |  ja   |
+| SKU, Name, Beschreibung, Preis und Lagerbestand ändern             |    ja    |  ja   |
+| Aktivstatus bestehender Produkte ändern oder Produkte deaktivieren |   nein   |  ja   |
+| Bestellungen erstellen, lesen und filtern                          |    ja    |  ja   |
+| Bestellungen bestätigen und versenden                              |    ja    |  ja   |
+| Bestellungen stornieren                                            |   nein   |  ja   |
 
 Die aktuelle Benutzerrolle wird bei geschützten Anfragen aus der Datenbank gelesen.
 
@@ -226,6 +342,10 @@ npx tsx prisma/change-admin-password.ts
 ```
 
 Diese Zugangsdaten sind ausschließlich für die lokale Entwicklung vorgesehen.
+
+Die UUIDs und Zeitstempel in den folgenden Beispielen dienen der Illustration.
+Beim Ausprobieren die IDs aus den eigenen API-Antworten verwenden.
+Lokale Datenbank und Produktionsdatenbank enthalten unterschiedliche Datensätze.
 
 ## Implementierte Endpunkte
 
@@ -751,6 +871,42 @@ Die Antwort enthält:
 - Aktuelle Produkt-ID, SKU und Produktname je Position.
 - `totalCents` aus den historischen Positionspreisen.
 
+Gekürztes Antwortbeispiel:
+
+```json
+{
+  "data": {
+    "id": "82847102-6413-46ca-aae5-6ddd11dc8ceb",
+    "customerId": "3d6fa886-91f3-4223-a848-78d29a3880fa",
+    "status": "PENDING",
+    "customer": {
+      "id": "3d6fa886-91f3-4223-a848-78d29a3880fa",
+      "email": "anna.beispiel@example.com",
+      "firstName": "Anna",
+      "lastName": "Beispiel",
+      "phone": "+49 987 654321"
+    },
+    "items": [
+      {
+        "id": "dc43c9c5-f059-4b73-8251-9373a7e462ea",
+        "orderId": "82847102-6413-46ca-aae5-6ddd11dc8ceb",
+        "productId": "005b0c6e-1474-463d-98da-d686d265d237",
+        "quantity": 2,
+        "unitPriceCents": 2199,
+        "product": {
+          "id": "005b0c6e-1474-463d-98da-d686d265d237",
+          "sku": "TASSE-001",
+          "name": "Keramiktasse"
+        }
+      }
+    ],
+    "totalCents": 4398
+  }
+}
+```
+
+Zeitstempel wurden im Beispiel ausgelassen. Der Bestellstatus entspricht dem gespeicherten aktuellen Zustand.
+
 Fehler: `400` bei ungültiger UUID, `401` ohne gültigen Token und `404` mit `ORDER_NOT_FOUND`, wenn die Bestellung nicht existiert.
 
 ### Bestellstatus ändern
@@ -820,6 +976,61 @@ Die Fehlerfälle entsprechen der Statusänderung. Ohne ADMIN-Rolle wird `403` zu
 
 Validierungsfehler enthalten zusätzlich ein Array `details` mit den betroffenen Feldern.
 
+Beispiel einer Validierungsantwort (`400 Bad Request`):
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Die Eingabedaten sind ungültig.",
+    "details": [
+      {
+        "path": "email",
+        "message": "Invalid email address"
+      }
+    ]
+  }
+}
+```
+
+Die äußere Fehlermeldung ist deutsch. Einzelne Validierungsdetails stammen direkt aus Zod und können englisch sein.
+
+### Allgemeine Fehler
+
+| Status | Code                | Bedeutung                                               |
+| ------ | ------------------- | ------------------------------------------------------- |
+| 400    | `INVALID_JSON`      | Anfragekörper enthält beschädigtes JSON                 |
+| 400    | `VALIDATION_ERROR`  | Eingaben entsprechen nicht dem erwarteten Schema        |
+| 401    | `UNAUTHORIZED`      | Anmeldung fehlt oder Token ist ungültig bzw. abgelaufen |
+| 403    | `FORBIDDEN`         | Benutzer besitzt nicht die erforderliche Berechtigung   |
+| 404    | `ROUTE_NOT_FOUND`   | Route existiert nicht                                   |
+| 413    | `PAYLOAD_TOO_LARGE` | JSON-Anfragekörper überschreitet 100 KB                 |
+| 429    | `TOO_MANY_REQUESTS` | Rate Limit erreicht                                     |
+| 500    | `INTERNAL_ERROR`    | Unerwarteter interner Fehler                            |
+
+Ressourcenspezifische Fehlercodes sind bei den jeweiligen Endpunkten dokumentiert.
+
+Unerwartete interne Fehler liefern eine allgemeine Meldung ohne Stacktrace:
+
+```json
+{
+  "error": {
+    "code": "INTERNAL_ERROR",
+    "message": "Ein interner Fehler ist aufgetreten."
+  }
+}
+```
+
+### Rate Limiting
+
+- Allgemeines Limit: 200 Anfragen je IP innerhalb von 15 Minuten.
+- Zusätzliches Login-Limit: 10 fehlgeschlagene Anmeldeversuche je IP innerhalb von 15 Minuten.
+- Erfolgreiche Logins zählen nicht dauerhaft zum zusätzlichen Login-Limit.
+- Bei Überschreitung wird `429` mit einem JSON-Fehler zurückgegeben.
+- Der Header `Retry-After` gibt die Wartezeit in Sekunden an.
+
+Die Zähler werden im Arbeitsspeicher gehalten und bei einem Neustart zurückgesetzt. Sie werden nicht zwischen mehreren Serverinstanzen geteilt.
+
 ## Sicherheit
 
 - Zentrale Validierung der Konfiguration und Eingabedaten mit Zod.
@@ -847,6 +1058,8 @@ npm run test:watch
 ```
 
 Die Tests prüfen HTTP-Verhalten, Login, JWT-Prüfung, Rollen, Kundenvalidierung und Fehlerfälle.
+
+Zusätzlich werden beschädigtes JSON, zu große Anfragekörper und das JSON-Fehlerformat des allgemeinen Rate Limits geprüft.
 
 Der Prisma-Zugriff wird in diesen Tests ersetzt. PostgreSQL und ein laufender Entwicklungsserver sind dafür nicht erforderlich. Die Tests verändern keine lokalen Daten.
 
@@ -1024,6 +1237,7 @@ Einzelprojekt von: **Olha Khodakivska**
 
 ## Projektstatus
 
-Das Projekt befindet sich in der Entwicklung.
+Die Kernfunktionen sind implementiert und bereitgestellt.
+Dokumentation, Codequalität und abschließende Abnahme werden bis zur Abgabe weiter überprüft.
 
-Die URL des bereitgestellten Backends wird nach dem Deployment ergänzt.
+Live-API: https://kunden-bestell-api.onrender.com

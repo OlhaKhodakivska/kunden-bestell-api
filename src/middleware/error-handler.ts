@@ -13,12 +13,45 @@ export const errorHandler: ErrorRequestHandler = (
     return;
   }
 
+  const parserError =
+    typeof error === "object" && error !== null
+      ? (error as { type?: unknown; status?: unknown })
+      : undefined;
+
+  if (
+    parserError?.type === "entity.parse.failed" &&
+    parserError.status === 400
+  ) {
+    response.status(400).json({
+      error: {
+        code: "INVALID_JSON",
+        message: "Der Anfragekörper enthält kein gültiges JSON."
+      }
+    });
+    return;
+  }
+
+  if (
+    parserError?.type === "entity.too.large" &&
+    parserError.status === 413
+  ) {
+    response.status(413).json({
+      error: {
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Der Anfragekörper überschreitet die erlaubte Größe."
+      }
+    });
+    return;
+  }
+
   if (error instanceof AppError) {
     response.status(error.statusCode).json({
       error: {
         code: error.code,
         message: error.message,
-        ...(error.details !== undefined && { details: error.details })
+        ...(error.details !== undefined && {
+          details: error.details
+        })
       }
     });
     return;

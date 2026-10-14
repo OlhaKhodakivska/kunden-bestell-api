@@ -32,7 +32,13 @@ export const createApp = () => {
       windowMs: 15 * 60 * 1000,
       limit: 200,
       standardHeaders: "draft-8",
-      legacyHeaders: false
+      legacyHeaders: false,
+      message: {
+        error: {
+          code: "TOO_MANY_REQUESTS",
+          message: "Zu viele Anfragen. Bitte später erneut versuchen."
+        }
+      }
     })
   );
 
